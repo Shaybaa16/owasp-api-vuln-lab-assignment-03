@@ -28,7 +28,7 @@ public class SecurityConfig {
 
     // VULNERABILITY(API7 Security Misconfiguration): overly permissive CORS/CSRF and antMatchers order
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, JwtService jwtService) throws Exception {
         http.csrf(csrf -> csrf.disable()); // APIs typically stateless; but add CSRF for state-changing in real apps
         http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
@@ -42,7 +42,9 @@ public class SecurityConfig {
 
         http.headers(h -> h.frameOptions(f -> f.disable())); // allow H2 console
 
-        http.addFilterBefore(new JwtFilter(secret), org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
+        // SECURITY FIX: Pass JwtService to filter instead of raw secret
+        http.addFilterBefore(new JwtFilter(jwtService), 
+                org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
@@ -51,10 +53,12 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    // Minimal JWT filter (VULNERABILITY: weak validation - no audience, issuer checks; long TTL)
     static class JwtFilter extends OncePerRequestFilter {
-        private final String secret;
-        JwtFilter(String secret) { this.secret = secret; }
+        private final JwtService jwtService;
+        
+        JwtFilter(JwtService jwtService) { 
+            this.jwtService = jwtService; 
+        }
 
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -63,15 +67,17 @@ public class SecurityConfig {
             if (auth != null && auth.startsWith("Bearer ")) {
                 String token = auth.substring(7);
                 try {
-                    Claims c = Jwts.parserBuilder().setSigningKey(secret.getBytes()).build()
-                            .parseClaimsJws(token).getBody();
+                    Claims c = jwtService.parse(token);
                     String user = c.getSubject();
                     String role = (String) c.get("role");
                     UsernamePasswordAuthenticationToken authn = new UsernamePasswordAuthenticationToken(user, null,
                             role != null ? Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role)) : Collections.emptyList());
                     SecurityContextHolder.getContext().setAuthentication(authn);
                 } catch (JwtException e) {
-                    // VULNERABILITY: swallow errors; continue as anonymous (API7)
+                    // SECURITY FIX: Proper error handling - don't swallow JWT exceptions
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.getWriter().write("Invalid token");
+                    return;
                 }
             }
             chain.doFilter(request, response);

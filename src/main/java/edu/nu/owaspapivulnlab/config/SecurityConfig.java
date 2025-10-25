@@ -29,18 +29,23 @@ public class SecurityConfig {
     // VULNERABILITY(API7 Security Misconfiguration): overly permissive CORS/CSRF and antMatchers order
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http, JwtService jwtService) throws Exception {
-        http.csrf(csrf -> csrf.disable()); // APIs typically stateless; but add CSRF for state-changing in real apps
+        // SECURITY FIX: Enable CSRF protection for state-changing operations
+        http.csrf(csrf -> csrf.ignoringRequestMatchers("/h2-console/**")); // Disable only for H2 console
+        
         http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
         http.authorizeHttpRequests(reg -> reg
-                .requestMatchers("/api/auth/**", "/h2-console/**").permitAll()
-                // VULNERABILITY: broad permitAll on GET allows data scraping (API1/2 depending on context)
-                .requestMatchers(HttpMethod.GET, "/api/**").permitAll()
+                // SECURITY FIX: Only permit authentication endpoints and H2 console (for development)
+                .requestMatchers("/api/auth/login", "/api/auth/register", "/h2-console/**").permitAll()
+                
+                // SECURITY FIX: Remove broad permitAll on GET - require authentication for all API endpoints
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/accounts/**", "/api/users/**").authenticated()
                 .anyRequest().authenticated()
         );
 
-        http.headers(h -> h.frameOptions(f -> f.disable())); // allow H2 console
+        // SECURITY FIX: Configure H2 console frame options properly
+        http.headers(h -> h.frameOptions(f -> f.sameOrigin())); // Allow frames from same origin for H2 console
 
         // SECURITY FIX: Pass JwtService to filter instead of raw secret
         http.addFilterBefore(new JwtFilter(jwtService), 

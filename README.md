@@ -1,57 +1,58 @@
-# OWASP API Vulnerable Lab (Spring Boot + JWT)
+# OWASP API Vulnerability Lab - Secured Version
 
-> This project intentionally contains vulnerabilities mapped to **OWASP API Security Top 10 (2023)** 
-> so students can identify and fix them.
+## Assignment 03 - Secure Software Design - Fall 2025
 
-## Quick Start
+### 📋 Project Overview
+This repository contains the **secured version** of the OWASP API Vulnerability Lab after implementing all required security fixes as per Assignment 03 requirements.
+
+### 🛡️ Security Fixes Implemented
+
+| # | Security Fix | Status | Key Changes |
+|---|-------------|--------|-------------|
+| 1 | Password Security (BCrypt) | ✅ Complete | BCrypt hashing, PasswordEncoder |
+| 2 | JWT Security Hardening | ✅ Complete | Issuer/audience claims, short TTL |
+| 3 | SecurityFilterChain & Access Control | ✅ Complete | Proper authentication, RBAC |
+| 4 | Resource Ownership Enforcement | ✅ Complete | BOLA/IDOR protection |
+| 5 | DTO Implementation & Data Exposure | ✅ Complete | Sensitive field protection |
+| 6 | Rate Limiting | ✅ Complete | Custom RateLimitService |
+| 7 | Mass Assignment Prevention | ✅ Complete | Protected setters, DTOs |
+| 8 | Error Handling & Logging | ✅ Complete | Secure error handling |
+| 9 | Input Validation | ✅ Complete | Custom validators |
+| 10 | Testing & Verification | ✅ Complete | Security integration tests |
+
+### 🌟 Branch Structure
+
+- **`vulnerable-code`**: Original vulnerable codebase
+- **`fixed-code`**: Secured implementation (current branch)
+
+### 🔗 Pull Request
+**Security Fixes Implementation**: [View Pull Request](https://github.com/Shaybaa16/owasp-api-vuln-lab-assignment-03/pull/1)
+
+### 📊 Security Assessment
+All 10 security fixes have been successfully implemented, tested, and verified. The application now follows industry security best practices and is protected against OWASP API Security Top 10 vulnerabilities.
+
+### Documentation
+#### For detailed vulnerability analysis and fix implementation, see:
+
+#### Security_Fixes_Report.md
+
+#### Individual commit messages for each security fix
+
+### 🚀 Quick Start
 
 ```bash
-# Java 17 + Maven required
+# Clone the repository
+git clone https://github.com/Shaybaa16/owasp-api-vuln-lab-assignment-03.git
+
+# Switch to fixed branch
+git checkout fixed-code
+
+# Run the application
 mvn spring-boot:run
-# H2 Console: http://localhost:8080/h2-console (JDBC URL: jdbc:h2:mem:apilab)
-```
 
-## Seed Users
+# Testing
+# Run security tests to verify all fixes:
 
-- `alice / alice123` (USER)
-- `bob / bob123` (ADMIN)
+mvn test
 
-Login to get a JWT:
-```bash
-curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d '{"username":"alice","password":"alice123"}'
-# => {"token":"<JWT>"}
-```
 
-Use the token:
-```bash
-export T="<JWT>"
-curl -H "Authorization: Bearer $T" http://localhost:8080/api/accounts/mine
-```
-
-## Intentional Vulnerabilities
-
-- **API1: Broken Object Level Authorization (BOLA/IDOR)**
-- **API2: Broken Authentication**
-- **API3: Excessive Data Exposure**
-- **API4: Unrestricted Resource Consumption**
-- **API5: Broken Function Level Authorization**
-- **API6: Mass Assignment**
-- **API7: Security Misconfiguration**
-- **API8: Weak Authentication / JWT issues**
-- **API9: Improper Inventory / Injection-like search**
-- **API10: Unsafe Consumption of APIs** (discussion prompt)
-
-## Student Tasks (Fixes)
-1. Replace plaintext passwords with BCrypt; add signup flow and migrate existing seeds.
-2. Tighten `SecurityFilterChain`: remove `permitAll` on `/api/**`, require auth; enforce role checks.
-3. In controllers, enforce ownership: user can only access their own resources (map subject -> userId).
-4. Implement DTOs to control data exposure; never return password, role, or admin flags.
-5. Add rate limiting (Bucket4j/Resilience4j) to sensitive endpoints.
-6. Prevent Mass Assignment: use explicit request DTOs without `role`, `isAdmin` or validate them server-side.
-7. Harden JWT: strong key from env, short TTL, add issuer/audience, validate signature & expiry strictly.
-8. Reduce error detail in production; proper exception mapping and logging.
-9. Add input validation; reject negative or huge transfers.
-10. Add integration tests to capture fixed behavior.
-
-## Notes
-- Keep a list of fixes and submit a PR describing how each vulnerability was addressed.

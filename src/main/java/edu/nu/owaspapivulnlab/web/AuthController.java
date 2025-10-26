@@ -12,12 +12,17 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import edu.nu.owaspapivulnlab.service.RateLimitService;
 import jakarta.servlet.http.HttpServletRequest;
 
+// Add import for logging
+import java.util.logging.Logger;
+
 import java.util.HashMap;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+    private static final Logger logger = Logger.getLogger(AuthController.class.getName());
+    
     private final AppUserRepository users;
     private final JwtService jwt;
     private final PasswordEncoder passwordEncoder;
@@ -100,11 +105,13 @@ public class AuthController {
     // Update login method with rate limiting
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginReq req, HttpServletRequest request) {
-        // SECURITY FIX: Apply rate limiting to login attempts to prevent brute force
         String clientIp = getClientIp(request);
         String rateLimitKey = "login_" + clientIp;
         
         if (!rateLimitService.allowRequest(rateLimitKey, "login")) {
+            // SECURITY FIX: Log rate limit violations
+            logger.warning("Rate limit exceeded for IP: " + clientIp + " - Username: " + req.username());
+            
             Map<String, String> error = new HashMap<>();
             error.put("error", "Too many login attempts. Please try again in 1 minute.");
             return ResponseEntity.status(429).body(error); // 429 Too Many Requests
@@ -112,6 +119,9 @@ public class AuthController {
         
         AppUser user = users.findByUsername(req.username()).orElse(null);
         if (user != null && passwordEncoder.matches(req.password(), user.getPassword())) {
+            // SECURITY FIX: Log successful login
+            logger.info("Successful login for user: " + req.username() + " from IP: " + clientIp);
+            
             Map<String, Object> claims = new HashMap<>();
             claims.put("role", user.getRole());
             claims.put("isAdmin", user.isAdmin());
@@ -119,30 +129,39 @@ public class AuthController {
             return ResponseEntity.ok(new TokenRes(token));
         }
         
+        // SECURITY FIX: Log failed login attempts
+        logger.warning("Failed login attempt for username: " + req.username() + " from IP: " + clientIp);
+        
         Map<String, String> error = new HashMap<>();
         error.put("error", "invalid credentials");
         return ResponseEntity.status(401).body(error);
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody RegisterReq req) {
-        // SECURITY FIX: Check if user already exists
+    public ResponseEntity<?> register(@RequestBody RegisterReq req, HttpServletRequest request) {
+        String clientIp = getClientIp(request);
+        
         if (users.findByUsername(req.getUsername()).isPresent()) {
+            // SECURITY FIX: Log registration conflicts
+            logger.warning("Registration conflict - username already exists: " + req.getUsername() + " from IP: " + clientIp);
+            
             Map<String, String> error = new HashMap<>();
             error.put("error", "Username already exists");
             return ResponseEntity.status(409).body(error);
         }
 
-        // SECURITY FIX: Create user with default USER role - prevent privilege escalation
         AppUser newUser = AppUser.builder()
                 .username(req.getUsername())
-                .password(passwordEncoder.encode(req.getPassword())) // Hash password
+                .password(passwordEncoder.encode(req.getPassword()))
                 .email(req.getEmail())
-                .role("USER") // Default role - cannot be set by user
-                .isAdmin(false) // Default to non-admin - cannot be set by user
+                .role("USER")
+                .isAdmin(false)
                 .build();
 
         users.save(newUser);
+
+        // SECURITY FIX: Log successful registrations
+        logger.info("New user registered: " + req.getUsername() + " from IP: " + clientIp);
 
         Map<String, String> response = new HashMap<>();
         response.put("message", "User registered successfully");

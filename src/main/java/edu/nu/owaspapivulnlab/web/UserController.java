@@ -17,6 +17,9 @@ import edu.nu.owaspapivulnlab.dto.UpdateUserDTO;
 import edu.nu.owaspapivulnlab.service.RateLimitService;
 import jakarta.servlet.http.HttpServletRequest;
 
+// Add import for logging
+import java.util.logging.Logger;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +29,8 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
+    private static final Logger logger = Logger.getLogger(UserController.class.getName());
+    
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final RateLimitService rateLimitService;
@@ -39,13 +44,15 @@ public class UserController {
 
     // SECURITY FIX: Add ownership enforcement - users can only access their own data
     @GetMapping("/{id}")
-    public ResponseEntity<?> get(@PathVariable Long id) {
+    public ResponseEntity<?> get(@PathVariable Long id, HttpServletRequest request) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = auth.getName();
+        String clientIp = getClientIp(request);
         
         Optional<AppUser> requestedUser = users.findById(id);
         
         if (requestedUser.isEmpty()) {
+            logger.warning("User not found - ID: " + id + " requested by: " + currentUsername + " from IP: " + clientIp);
             Map<String, String> error = new HashMap<>();
             error.put("error", "User not found");
             return ResponseEntity.status(404).body(error);
@@ -55,10 +62,18 @@ public class UserController {
         
         // SECURITY FIX: Check if current user is accessing their own data or is admin
         if (!user.getUsername().equals(currentUsername) && !isAdmin(auth)) {
+            // SECURITY FIX: Log unauthorized access attempts
+            logger.warning("Unauthorized access attempt - User: " + currentUsername + 
+                          " tried to access user ID: " + id + " from IP: " + clientIp);
+            
             Map<String, String> error = new HashMap<>();
             error.put("error", "Access denied");
             return ResponseEntity.status(403).body(error);
         }
+        
+        // SECURITY FIX: Log successful access
+        logger.info("User data accessed - Target: " + user.getUsername() + 
+                   " by User: " + currentUsername + " from IP: " + clientIp);
         
         // SECURITY FIX: Return UserDTO instead of raw entity
         UserDTO response = new UserDTO(user.getId(), user.getUsername(), user.getEmail());
@@ -237,9 +252,10 @@ public class UserController {
 
     // SECURITY FIX: Restrict deletion to own account or admin privileges
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable Long id) {
+    public ResponseEntity<?> delete(@PathVariable Long id, HttpServletRequest request) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = auth.getName();
+        String clientIp = getClientIp(request);
         
         Optional<AppUser> userToDelete = users.findById(id);
         if (userToDelete.isEmpty()) {
@@ -252,12 +268,20 @@ public class UserController {
         
         // SECURITY FIX: Users can only delete their own account, admins can delete any account
         if (!user.getUsername().equals(currentUsername) && !isAdmin(auth)) {
+            // SECURITY FIX: Log unauthorized deletion attempts
+            logger.warning("Unauthorized deletion attempt - User: " + currentUsername + 
+                          " tried to delete user ID: " + id + " from IP: " + clientIp);
+            
             Map<String, String> error = new HashMap<>();
             error.put("error", "Access denied");
             return ResponseEntity.status(403).body(error);
         }
         
         users.deleteById(id);
+        
+        // SECURITY FIX: Log successful deletions
+        logger.info("User deleted - Target: " + user.getUsername() + 
+                   " by User: " + currentUsername + " from IP: " + clientIp);
         
         Map<String, String> response = new HashMap<>();
         response.put("status", "deleted");

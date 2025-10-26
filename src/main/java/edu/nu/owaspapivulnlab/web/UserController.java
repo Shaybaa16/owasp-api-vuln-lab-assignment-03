@@ -44,7 +44,7 @@ public class UserController {
 
     // SECURITY FIX: Add ownership enforcement - users can only access their own data
     @GetMapping("/{id}")
-    public ResponseEntity<?> get(@PathVariable Long id, HttpServletRequest request) {
+    public ResponseEntity<?> get(@PathVariable("id") Long id, HttpServletRequest request) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = auth.getName();
         String clientIp = getClientIp(request);

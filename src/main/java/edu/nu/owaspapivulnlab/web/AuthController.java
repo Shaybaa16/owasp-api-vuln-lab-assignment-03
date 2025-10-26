@@ -8,6 +8,10 @@ import edu.nu.owaspapivulnlab.repo.AppUserRepository;
 import edu.nu.owaspapivulnlab.service.JwtService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+// Add import
+import edu.nu.owaspapivulnlab.service.RateLimitService;
+import jakarta.servlet.http.HttpServletRequest;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,11 +21,14 @@ public class AuthController {
     private final AppUserRepository users;
     private final JwtService jwt;
     private final PasswordEncoder passwordEncoder;
+    private final RateLimitService rateLimitService;
 
-    public AuthController(AppUserRepository users, JwtService jwt, PasswordEncoder passwordEncoder) {
+    // Update constructor to include RateLimitService
+    public AuthController(AppUserRepository users, JwtService jwt, PasswordEncoder passwordEncoder, RateLimitService rateLimitService) {
         this.users = users;
         this.jwt = jwt;
         this.passwordEncoder = passwordEncoder;
+        this.rateLimitService = rateLimitService;
     }
 
     public static class LoginReq {
@@ -90,17 +97,28 @@ public class AuthController {
         public void setEmail(String email) { this.email = email; }
     }
 
+    // Update login method with rate limiting
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody LoginReq req) {
-        // VULNERABILITY(API2: Broken Authentication): plaintext password check, no lockout/rate limit/MFA
+    public ResponseEntity<?> login(@RequestBody LoginReq req, HttpServletRequest request) {
+        // SECURITY FIX: Apply rate limiting to login attempts to prevent brute force
+        String clientIp = getClientIp(request);
+        String rateLimitKey = "login_" + clientIp;
+        
+        if (!rateLimitService.allowRequest(rateLimitKey, "login")) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Too many login attempts. Please try again in 1 minute.");
+            return ResponseEntity.status(429).body(error); // 429 Too Many Requests
+        }
+        
         AppUser user = users.findByUsername(req.username()).orElse(null);
         if (user != null && passwordEncoder.matches(req.password(), user.getPassword())) {
             Map<String, Object> claims = new HashMap<>();
             claims.put("role", user.getRole());
-            claims.put("isAdmin", user.isAdmin()); // VULN: trusts client-side role later
+            claims.put("isAdmin", user.isAdmin());
             String token = jwt.issue(user.getUsername(), claims);
             return ResponseEntity.ok(new TokenRes(token));
         }
+        
         Map<String, String> error = new HashMap<>();
         error.put("error", "invalid credentials");
         return ResponseEntity.status(401).body(error);
@@ -129,5 +147,14 @@ public class AuthController {
         Map<String, String> response = new HashMap<>();
         response.put("message", "User registered successfully");
         return ResponseEntity.status(201).body(response);
+    }
+
+    // SECURITY FIX: Helper method to get client IP address
+    private String getClientIp(HttpServletRequest request) {
+        String xfHeader = request.getHeader("X-Forwarded-For");
+        if (xfHeader != null) {
+            return xfHeader.split(",")[0];
+        }
+        return request.getRemoteAddr();
     }
 }

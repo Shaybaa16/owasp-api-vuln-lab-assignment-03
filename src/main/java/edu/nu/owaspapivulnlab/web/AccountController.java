@@ -9,6 +9,10 @@ import edu.nu.owaspapivulnlab.model.AppUser;
 import edu.nu.owaspapivulnlab.repo.AccountRepository;
 import edu.nu.owaspapivulnlab.repo.AppUserRepository;
 
+// Add imports
+import edu.nu.owaspapivulnlab.service.RateLimitService;
+import jakarta.servlet.http.HttpServletRequest;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -22,10 +26,13 @@ public class AccountController {
 
     private final AccountRepository accounts;
     private final AppUserRepository users;
+    private final RateLimitService rateLimitService;
 
-    public AccountController(AccountRepository accounts, AppUserRepository users) {
+    // Update constructor to include RateLimitService
+    public AccountController(AccountRepository accounts, AppUserRepository users, RateLimitService rateLimitService) {
         this.accounts = accounts;
         this.users = users;
+        this.rateLimitService = rateLimitService;
     }
 
     // SECURITY FIX: Add ownership check for account balance
@@ -62,9 +69,19 @@ public class AccountController {
 
     // SECURITY FIX: Add ownership check and input validation for transfers
     @PostMapping("/{id}/transfer")
-    public ResponseEntity<?> transfer(@PathVariable Long id, @RequestParam Double amount) {
+    public ResponseEntity<?> transfer(@PathVariable Long id, @RequestParam Double amount, HttpServletRequest request) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = auth.getName();
+        
+        // SECURITY FIX: Apply rate limiting to transfers
+        String clientIp = getClientIp(request);
+        String rateLimitKey = "transfer_" + currentUsername + "_" + clientIp;
+        
+        if (!rateLimitService.allowRequest(rateLimitKey, "transfer")) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Too many transfer requests. Please try again in 1 minute.");
+            return ResponseEntity.status(429).body(error);
+        }
         
         // SECURITY FIX: Validate amount
         if (amount == null || amount <= 0) {
@@ -140,5 +157,14 @@ public class AccountController {
     private boolean isAdmin(Authentication auth) {
         return auth.getAuthorities().stream()
                 .anyMatch(grantedAuthority -> grantedAuthority.getAuthority().equals("ROLE_ADMIN"));
+    }
+
+    // SECURITY FIX: Helper method to get client IP address
+    private String getClientIp(HttpServletRequest request) {
+        String xfHeader = request.getHeader("X-Forwarded-For");
+        if (xfHeader != null) {
+            return xfHeader.split(",")[0];
+        }
+        return request.getRemoteAddr();
     }
 }

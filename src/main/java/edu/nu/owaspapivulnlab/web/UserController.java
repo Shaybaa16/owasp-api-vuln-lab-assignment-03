@@ -12,6 +12,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 // Add imports
 import edu.nu.owaspapivulnlab.dto.UserDTO;
 import edu.nu.owaspapivulnlab.dto.CreateUserDTO;
+import edu.nu.owaspapivulnlab.service.RateLimitService;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.HashMap;
 import java.util.List;
@@ -24,11 +26,13 @@ import java.util.stream.Collectors;
 public class UserController {
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
+    private final RateLimitService rateLimitService;
 
-    // SECURITY FIX: Inject PasswordEncoder for password hashing
-    public UserController(AppUserRepository users, PasswordEncoder passwordEncoder) {
+    // Update constructor to include RateLimitService
+    public UserController(AppUserRepository users, PasswordEncoder passwordEncoder, RateLimitService rateLimitService) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
+        this.rateLimitService = rateLimitService;
     }
 
     // SECURITY FIX: Add ownership enforcement - users can only access their own data
@@ -113,8 +117,19 @@ public class UserController {
 
     // SECURITY FIX: Restrict user search to prevent enumeration
     @GetMapping("/search")
-    public ResponseEntity<?> search(@RequestParam String q) {
+    public ResponseEntity<?> search(@RequestParam String q, HttpServletRequest request) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        
+        // SECURITY FIX: Apply rate limiting to search
+        String clientIp = getClientIp(request);
+        String currentUsername = auth.getName();
+        String rateLimitKey = "search_" + currentUsername + "_" + clientIp;
+        
+        if (!rateLimitService.allowRequest(rateLimitKey, "search")) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Too many search requests. Please try again in 1 minute.");
+            return ResponseEntity.status(429).body(error);
+        }
         
         // SECURITY FIX: Only allow search for authenticated users with minimum query length
         if (q == null || q.trim().length() < 2) {
@@ -197,5 +212,14 @@ public class UserController {
     private boolean isAdmin(Authentication auth) {
         return auth.getAuthorities().stream()
                 .anyMatch(grantedAuthority -> grantedAuthority.getAuthority().equals("ROLE_ADMIN"));
+    }
+
+    // SECURITY FIX: Helper method to get client IP address
+    private String getClientIp(HttpServletRequest request) {
+        String xfHeader = request.getHeader("X-Forwarded-For");
+        if (xfHeader != null) {
+            return xfHeader.split(",")[0];
+        }
+        return request.getRemoteAddr();
     }
 }

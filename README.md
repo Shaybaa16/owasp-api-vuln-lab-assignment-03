@@ -51,9 +51,8 @@ git checkout fixed-code
 mvn spring-boot:run
 
 # Testing
-## Run security tests to verify all fixes:
+# Run security tests to verify all fixes:
 
-```bash
 mvn test
 
 

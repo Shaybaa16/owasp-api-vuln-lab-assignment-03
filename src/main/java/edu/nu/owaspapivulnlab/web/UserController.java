@@ -205,14 +205,37 @@ public class UserController {
             return ResponseEntity.status(429).body(error);
         }
         
-        // SECURITY FIX: Only allow search for authenticated users with minimum query length
-        if (q == null || q.trim().length() < 2) {
+        // SECURITY FIX: Enhanced input validation for search query
+        if (q == null || q.trim().isEmpty()) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Search query is required");
+            return ResponseEntity.status(400).body(error);
+        }
+        
+        String trimmedQuery = q.trim();
+        
+        // SECURITY FIX: Validate query length and content
+        if (trimmedQuery.length() < 2) {
             Map<String, String> error = new HashMap<>();
             error.put("error", "Search query must be at least 2 characters");
             return ResponseEntity.status(400).body(error);
         }
         
-        List<AppUser> foundUsers = users.search(q.trim());
+        if (trimmedQuery.length() > 50) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Search query must not exceed 50 characters");
+            return ResponseEntity.status(400).body(error);
+        }
+        
+        // SECURITY FIX: Prevent SQL injection-like patterns (basic protection)
+        // Note: This is a basic check - proper SQL injection prevention is handled by JPA
+        if (trimmedQuery.matches(".*[;'\"\\-].*")) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Invalid characters in search query");
+            return ResponseEntity.status(400).body(error);
+        }
+        
+        List<AppUser> foundUsers = users.search(trimmedQuery);
         
         // SECURITY FIX: Return UserDTO instead of raw entities
         List<UserDTO> response = foundUsers.stream()

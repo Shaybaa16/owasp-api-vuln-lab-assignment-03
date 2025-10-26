@@ -83,10 +83,37 @@ public class AccountController {
             return ResponseEntity.status(429).body(error);
         }
         
-        // SECURITY FIX: Validate amount
-        if (amount == null || amount <= 0) {
+        // SECURITY FIX: Enhanced input validation for amount
+        if (amount == null) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Amount is required");
+            return ResponseEntity.status(400).body(error);
+        }
+        
+        // SECURITY FIX: Validate amount range and precision
+        if (amount <= 0) {
             Map<String, String> error = new HashMap<>();
             error.put("error", "Amount must be positive");
+            return ResponseEntity.status(400).body(error);
+        }
+        
+        if (amount > 1000000) { // Reasonable maximum transfer limit
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Amount exceeds maximum transfer limit");
+            return ResponseEntity.status(400).body(error);
+        }
+        
+        // SECURITY FIX: Prevent floating point precision issues
+        if (Double.isInfinite(amount) || Double.isNaN(amount)) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Invalid amount specified");
+            return ResponseEntity.status(400).body(error);
+        }
+        
+        // SECURITY FIX: Validate account ID
+        if (id == null || id <= 0) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Invalid account ID");
             return ResponseEntity.status(400).body(error);
         }
         

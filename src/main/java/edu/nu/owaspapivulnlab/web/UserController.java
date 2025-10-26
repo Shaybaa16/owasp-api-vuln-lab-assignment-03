@@ -9,6 +9,10 @@ import edu.nu.owaspapivulnlab.model.AppUser;
 import edu.nu.owaspapivulnlab.repo.AppUserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+// Add imports
+import edu.nu.owaspapivulnlab.dto.UserDTO;
+import edu.nu.owaspapivulnlab.dto.CreateUserDTO;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,13 +54,8 @@ public class UserController {
             return ResponseEntity.status(403).body(error);
         }
         
-        // SECURITY FIX: Return limited user data (will be improved with DTOs in next fix)
-        Map<String, Object> response = new HashMap<>();
-        response.put("id", user.getId());
-        response.put("username", user.getUsername());
-        response.put("email", user.getEmail());
-        // SECURITY FIX: Do not expose password, role, or isAdmin to non-admin users
-        
+        // SECURITY FIX: Return UserDTO instead of raw entity
+        UserDTO response = new UserDTO(user.getId(), user.getUsername(), user.getEmail());
         return ResponseEntity.ok(response);
     }
 
@@ -76,42 +75,40 @@ public class UserController {
         
         AppUser currentUser = user.get();
         
-        // SECURITY FIX: Return limited user data
-        Map<String, Object> response = new HashMap<>();
-        response.put("id", currentUser.getId());
-        response.put("username", currentUser.getUsername());
-        response.put("email", currentUser.getEmail());
-        
+        // SECURITY FIX: Return UserDTO instead of raw entity
+        UserDTO response = new UserDTO(currentUser.getId(), currentUser.getUsername(), currentUser.getEmail());
         return ResponseEntity.ok(response);
     }
 
     // SECURITY FIX: Prevent mass assignment and enforce default role
     @PostMapping
-    public ResponseEntity<?> create(@Valid @RequestBody AppUser body) {
+    public ResponseEntity<?> create(@Valid @RequestBody CreateUserDTO createUserDTO) {
         // SECURITY FIX: Check if username already exists
-        if (users.findByUsername(body.getUsername()).isPresent()) {
+        if (users.findByUsername(createUserDTO.getUsername()).isPresent()) {
             Map<String, String> error = new HashMap<>();
             error.put("error", "Username already exists");
             return ResponseEntity.status(409).body(error);
         }
 
-        // SECURITY FIX: Override role and isAdmin to prevent mass assignment
-        body.setRole("USER");
-        body.setAdmin(false);
+        // SECURITY FIX: Create user from DTO - prevents mass assignment
+        AppUser newUser = AppUser.builder()
+                .username(createUserDTO.getUsername())
+                .password(passwordEncoder.encode(createUserDTO.getPassword()))
+                .email(createUserDTO.getEmail())
+                .role("USER") // Default role - cannot be set by user
+                .isAdmin(false) // Default to non-admin - cannot be set by user
+                .build();
+
+        AppUser savedUser = users.save(newUser);
         
-        // SECURITY FIX: Hash password before saving
-        body.setPassword(passwordEncoder.encode(body.getPassword()));
+        // SECURITY FIX: Return UserDTO instead of raw entity
+        UserDTO response = new UserDTO(savedUser.getId(), savedUser.getUsername(), savedUser.getEmail());
         
-        AppUser savedUser = users.save(body);
+        Map<String, Object> finalResponse = new HashMap<>();
+        finalResponse.put("user", response);
+        finalResponse.put("message", "User created successfully");
         
-        // SECURITY FIX: Return limited user data
-        Map<String, Object> response = new HashMap<>();
-        response.put("id", savedUser.getId());
-        response.put("username", savedUser.getUsername());
-        response.put("email", savedUser.getEmail());
-        response.put("message", "User created successfully");
-        
-        return ResponseEntity.status(201).body(response);
+        return ResponseEntity.status(201).body(finalResponse);
     }
 
     // SECURITY FIX: Restrict user search to prevent enumeration
@@ -128,15 +125,9 @@ public class UserController {
         
         List<AppUser> foundUsers = users.search(q.trim());
         
-        // SECURITY FIX: Return limited user information
-        List<Map<String, Object>> response = foundUsers.stream()
-                .map(user -> {
-                    Map<String, Object> userInfo = new HashMap<>();
-                    userInfo.put("id", user.getId());
-                    userInfo.put("username", user.getUsername());
-                    // SECURITY FIX: Do not expose email in search results to prevent enumeration
-                    return userInfo;
-                })
+        // SECURITY FIX: Return UserDTO instead of raw entities
+        List<UserDTO> response = foundUsers.stream()
+                .map(user -> new UserDTO(user.getId(), user.getUsername(), null)) // Don't expose email in search
                 .collect(Collectors.toList());
         
         return ResponseEntity.ok(response);

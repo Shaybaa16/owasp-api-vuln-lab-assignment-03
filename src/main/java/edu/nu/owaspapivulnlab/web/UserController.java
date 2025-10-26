@@ -12,6 +12,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 // Add imports
 import edu.nu.owaspapivulnlab.dto.UserDTO;
 import edu.nu.owaspapivulnlab.dto.CreateUserDTO;
+import edu.nu.owaspapivulnlab.dto.AdminUserDTO;
+import edu.nu.owaspapivulnlab.dto.UpdateUserDTO;
 import edu.nu.owaspapivulnlab.service.RateLimitService;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -115,6 +117,63 @@ public class UserController {
         return ResponseEntity.status(201).body(finalResponse);
     }
 
+    // SECURITY FIX: Add update endpoint with mass assignment protection
+    @PutMapping("/{id}")
+    public ResponseEntity<?> update(@PathVariable Long id, @Valid @RequestBody UpdateUserDTO updateUserDTO) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String currentUsername = auth.getName();
+        
+        Optional<AppUser> userToUpdate = users.findById(id);
+        if (userToUpdate.isEmpty()) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "User not found");
+            return ResponseEntity.status(404).body(error);
+        }
+        
+        AppUser user = userToUpdate.get();
+        
+        // SECURITY FIX: Users can only update their own profile, admins can update any
+        if (!user.getUsername().equals(currentUsername) && !isAdmin(auth)) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Access denied");
+            return ResponseEntity.status(403).body(error);
+        }
+        
+        // SECURITY FIX: Only update provided fields - prevent mass assignment
+        if (updateUserDTO.getUsername() != null && !updateUserDTO.getUsername().trim().isEmpty()) {
+            // Check if new username is available
+            if (!user.getUsername().equals(updateUserDTO.getUsername()) && 
+                users.findByUsername(updateUserDTO.getUsername()).isPresent()) {
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "Username already taken");
+                return ResponseEntity.status(409).body(error);
+            }
+            user.setUsername(updateUserDTO.getUsername());
+        }
+        
+        if (updateUserDTO.getEmail() != null && !updateUserDTO.getEmail().trim().isEmpty()) {
+            user.setEmail(updateUserDTO.getEmail());
+        }
+        
+        if (updateUserDTO.getPassword() != null && !updateUserDTO.getPassword().trim().isEmpty()) {
+            user.setPassword(passwordEncoder.encode(updateUserDTO.getPassword()));
+        }
+        
+        // SECURITY FIX: Role and isAdmin cannot be updated via this endpoint
+        // Admin-specific role updates would be in a separate admin controller
+        
+        AppUser updatedUser = users.save(user);
+        
+        // SECURITY FIX: Return UserDTO instead of raw entity
+        UserDTO response = new UserDTO(updatedUser.getId(), updatedUser.getUsername(), updatedUser.getEmail());
+        
+        Map<String, Object> finalResponse = new HashMap<>();
+        finalResponse.put("user", response);
+        finalResponse.put("message", "User updated successfully");
+        
+        return ResponseEntity.ok(finalResponse);
+    }
+
     // SECURITY FIX: Restrict user search to prevent enumeration
     @GetMapping("/search")
     public ResponseEntity<?> search(@RequestParam String q, HttpServletRequest request) {
@@ -162,18 +221,15 @@ public class UserController {
         
         List<AppUser> allUsers = users.findAll();
         
-        // SECURITY FIX: Return limited user information even for admins
-        List<Map<String, Object>> response = allUsers.stream()
-                .map(user -> {
-                    Map<String, Object> userInfo = new HashMap<>();
-                    userInfo.put("id", user.getId());
-                    userInfo.put("username", user.getUsername());
-                    userInfo.put("email", user.getEmail());
-                    userInfo.put("role", user.getRole());
-                    userInfo.put("isAdmin", user.isAdmin());
-                    // SECURITY FIX: Never expose passwords
-                    return userInfo;
-                })
+        // SECURITY FIX: Return AdminUserDTO for admin operations
+        List<AdminUserDTO> response = allUsers.stream()
+                .map(user -> new AdminUserDTO(
+                    user.getId(), 
+                    user.getUsername(), 
+                    user.getEmail(), 
+                    user.getRole(), 
+                    user.isAdmin()
+                ))
                 .collect(Collectors.toList());
         
         return ResponseEntity.ok(response);
